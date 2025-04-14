@@ -70,6 +70,10 @@ mcp = FastMCP("ElevenLabs")
         speed (float, optional): Speed of the generated audio. Controls the speed of the generated speech. Values range from 0.7 to 1.2, with 1.0 being the default speed. Lower values create slower, more deliberate speech while higher values produce faster-paced speech. Extreme values can impact the quality of the generated speech. Range is 0.7 to 1.2.
         output_directory (str, optional): Directory where files should be saved.
             Defaults to $HOME/Desktop if not provided.
+        model_id (str, optional): The model to use for the text-to-speech conversion.
+            Defaults to "eleven_multilingual_v2".
+        output_format (str, optional): The format of the output audio file.
+            Defaults to "mp3_44100_128".
 
     Returns:
         Text content with the path to the output file and name of the voice used.
@@ -85,6 +89,8 @@ def text_to_speech(
     style: float = 0,
     use_speaker_boost: bool = True,
     speed: float = 1.0,
+    model_id: str = "eleven_multilingual_v2",
+    output_format: str = "mp3_44100_128",
 ):
     if text == "":
         make_error("Text is required.")
@@ -111,8 +117,8 @@ def text_to_speech(
     audio_data = client.text_to_speech.convert(
         text=text,
         voice_id=voice_id,
-        model_id="eleven_multilingual_v2",
-        output_format="mp3_44100_128",
+        model_id=model_id,
+        output_format=output_format,
         voice_settings={
             "stability": stability,
             "similarity_boost": similarity_boost,
@@ -200,10 +206,15 @@ def speech_to_text(
         duration_seconds: Duration of the sound effect in seconds
         output_directory: Directory where files should be saved.
             Defaults to $HOME/Desktop if not provided.
+        output_format: The format of the output audio file.
+            Defaults to "mp3_44100_128".
     """
 )
 def text_to_sound_effects(
-    text: str, duration_seconds: float = 2.0, output_directory: str | None = None
+    text: str,
+    duration_seconds: float = 2.0,
+    output_directory: str | None = None,
+    output_format: str = "mp3_44100_128"
 ) -> list[TextContent]:
     if duration_seconds < 0.5 or duration_seconds > 5:
         make_error("Duration must be between 0.5 and 5 seconds")
@@ -212,7 +223,7 @@ def text_to_sound_effects(
 
     audio_data = client.text_to_sound_effects.convert(
         text=text,
-        output_format="mp3_44100_128",
+        output_format=output_format,
         duration_seconds=duration_seconds,
     )
     audio_bytes = b"".join(audio_data)
@@ -228,7 +239,7 @@ def text_to_sound_effects(
 
 @mcp.tool(
     description="""
-    Search for existing voices, a voice that has already been added to the user's ElevenLabs voice library. 
+    Search for existing voices, a voice that has already been added to the user's ElevenLabs voice library.
     Searches in name, description, labels and category.
 
     Args:
@@ -650,7 +661,7 @@ def make_outbound_call(
         page: Page number to return (0-indexed)
         page_size: Number of voices to return per page (1-100)
         search: Search term to filter voices by
-        
+
     Returns:
         TextContent containing information about the shared voices
     """
