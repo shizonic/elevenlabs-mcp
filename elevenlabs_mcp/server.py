@@ -70,10 +70,27 @@ mcp = FastMCP("ElevenLabs")
         speed (float, optional): Speed of the generated audio. Controls the speed of the generated speech. Values range from 0.7 to 1.2, with 1.0 being the default speed. Lower values create slower, more deliberate speech while higher values produce faster-paced speech. Extreme values can impact the quality of the generated speech. Range is 0.7 to 1.2.
         output_directory (str, optional): Directory where files should be saved.
             Defaults to $HOME/Desktop if not provided.
-        model_id (str, optional): The model to use for the text-to-speech conversion.
-            Defaults to "eleven_multilingual_v2".
-        output_format (str, optional): The format of the output audio file.
-            Defaults to "mp3_44100_128".
+        language: ISO 639-1 language code for the voice.
+        output_format (str, optional): Output format of the generated audio. Formatted as codec_sample_rate_bitrate. So an mp3 with 22.05kHz sample rate at 32kbs is represented as mp3_22050_32. MP3 with 192kbps bitrate requires you to be subscribed to Creator tier or above. PCM with 44.1kHz sample rate requires you to be subscribed to Pro tier or above. Note that the μ-law format (sometimes written mu-law, often approximated as u-law) is commonly used for Twilio audio inputs.
+            Defaults to "mp3_44100_128". Must be one of:
+            mp3_22050_32
+            mp3_44100_32
+            mp3_44100_64
+            mp3_44100_96
+            mp3_44100_128
+            mp3_44100_192
+            pcm_8000
+            pcm_16000
+            pcm_22050
+            pcm_24000
+            pcm_44100
+            ulaw_8000
+            alaw_8000
+            opus_48000_32
+            opus_48000_64
+            opus_48000_96
+            opus_48000_128
+            opus_48000_192
 
     Returns:
         Text content with the path to the output file and name of the voice used.
@@ -89,7 +106,7 @@ def text_to_speech(
     style: float = 0,
     use_speaker_boost: bool = True,
     speed: float = 1.0,
-    model_id: str = "eleven_multilingual_v2",
+    language: str = "en",
     output_format: str = "mp3_44100_128",
 ):
     if text == "":
@@ -113,6 +130,8 @@ def text_to_speech(
 
     output_path = make_output_path(output_directory, base_path)
     output_file_name = make_output_file("tts", text, output_path, "mp3")
+
+    model_id = "eleven_flash_v2_5" if language in ["hu", "no", "vi"] else "eleven_multilingual_v2"
 
     audio_data = client.text_to_speech.convert(
         text=text,
@@ -206,8 +225,26 @@ def speech_to_text(
         duration_seconds: Duration of the sound effect in seconds
         output_directory: Directory where files should be saved.
             Defaults to $HOME/Desktop if not provided.
-        output_format: The format of the output audio file.
-            Defaults to "mp3_44100_128".
+        output_format (str, optional): Output format of the generated audio. Formatted as codec_sample_rate_bitrate. So an mp3 with 22.05kHz sample rate at 32kbs is represented as mp3_22050_32. MP3 with 192kbps bitrate requires you to be subscribed to Creator tier or above. PCM with 44.1kHz sample rate requires you to be subscribed to Pro tier or above. Note that the μ-law format (sometimes written mu-law, often approximated as u-law) is commonly used for Twilio audio inputs.
+            Defaults to "mp3_44100_128". Must be one of:
+            mp3_22050_32
+            mp3_44100_32
+            mp3_44100_64
+            mp3_44100_96
+            mp3_44100_128
+            mp3_44100_192
+            pcm_8000
+            pcm_16000
+            pcm_22050
+            pcm_24000
+            pcm_44100
+            ulaw_8000
+            alaw_8000
+            opus_48000_32
+            opus_48000_64
+            opus_48000_96
+            opus_48000_128
+            opus_48000_192
     """
 )
 def text_to_sound_effects(
@@ -542,7 +579,7 @@ def speech_to_speech(
         audio_bytes = f.read()
 
     audio_data = client.speech_to_speech.convert(
-        model_id="eleven_english_sts_v2",
+        model_id="eleven_multilingual_sts_v2",
         voice_id=voice.voice_id,
         audio=audio_bytes,
     )
