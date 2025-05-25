@@ -1,4 +1,5 @@
 version = 1
+revision = 1
 requires-python = ">=3.11"
 
 [[package]]
@@ -163,7 +164,7 @@ name = "click"
 version = "8.1.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "platform_system == 'Windows'" },
+    { name = "colorama", marker = "sys_platform == 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/b9/2e/0090cbf739cee7d23781ad4b89a9894a41538e4fcf4c31dcdd705b78eb8b/click-8.1.8.tar.gz", hash = "sha256:ed53c9d8990d83c2a27deae68e4ee337473f6330c040a31d4225c9574d16096a", size = 226593 }
 wheels = [
@@ -287,7 +288,7 @@ wheels = [
 
 [[package]]
 name = "elevenlabs"
-version = "1.56.0"
+version = "2.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -297,14 +298,14 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1a/ad/e65a5c854a9ee0759c6b19da8981c275253f4cfc1761394b4067bfed4792/elevenlabs-1.56.0.tar.gz", hash = "sha256:69f078844f1adeb5a9c154e0514575e34d9b57909129d9a94a4ef8d41673bcac", size = 174798 }
+sdist = { url = "https://files.pythonhosted.org/packages/6b/61/60b05ecdaec969c93551d47458711982fc66fa04bc35cd629f41abd45771/elevenlabs-2.1.0.tar.gz", hash = "sha256:182b3a8d7ba3eb4f427407e23c49b187d1e115de41663cc396facb65cdd62e44", size = 239885 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4f/f0/f711ffe2fcc4fb8405889ca81a478c54ddaa290ca39d74823c8042eacf3f/elevenlabs-1.56.0-py3-none-any.whl", hash = "sha256:8aaa6be6186318cc95abf63ba8806d991f13cf698b28305e54fb51673d791ed5", size = 413655 },
+    { url = "https://files.pythonhosted.org/packages/05/f2/d94eef076fdfa415e99ae3f8522c3542c4e5a50b555c2c795369659105b8/elevenlabs-2.1.0-py3-none-any.whl", hash = "sha256:b404e02d92fe273b8bd138ebe95f4b02e18dd15b990fedb1e76633bdb86a16f6", size = 682926 },
 ]
 
 [[package]]
 name = "elevenlabs-mcp"
-version = "0.2.1"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "elevenlabs" },
@@ -334,7 +335,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.0.3" },
-    { name = "elevenlabs", specifier = ">=1.56.0" },
+    { name = "elevenlabs", specifier = ">=2.1.0" },
     { name = "fastapi", specifier = "==0.109.2" },
     { name = "fastmcp", marker = "extra == 'dev'", specifier = "==0.4.1" },
     { name = "fuzzywuzzy", specifier = "==0.18.0" },
@@ -352,6 +353,7 @@ requires-dist = [
     { name = "twine", marker = "extra == 'dev'", specifier = "==6.1.0" },
     { name = "uvicorn", specifier = "==0.27.1" },
 ]
+provides-extras = ["dev"]
 
 [[package]]
 name = "fastapi"

@@ -21,3 +21,14 @@ class ConvaiAgent(BaseModel):
     voice_id: str | None
     language: str
     llm: str
+
+
+class McpLanguage(BaseModel):
+    language_id: str
+    name: str
+
+
+class McpModel(BaseModel):
+    id: str
+    name: str
+    languages: list[McpLanguage]
