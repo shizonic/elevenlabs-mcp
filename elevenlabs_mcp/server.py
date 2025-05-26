@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 from mcp.types import TextContent
 from elevenlabs.client import ElevenLabs
-from elevenlabs_mcp.model import McpVoice
+from elevenlabs_mcp.model import McpVoice, McpModel, McpLanguage
 from elevenlabs_mcp.utils import (
     make_error,
     make_output_path,
@@ -302,6 +302,22 @@ def search_voices(
     ]
 
 
+@mcp.tool(description="List all available models")
+def list_models() -> list[McpModel]:
+    response = client.models.list()
+    return [
+        McpModel(
+            id=model.model_id,
+            name=model.name,
+            languages=[
+                McpLanguage(language_id=lang.language_id, name=lang.name)
+                for lang in model.languages
+            ]
+        )
+        for model in response
+    ]
+
+
 @mcp.tool(description="Get details of a specific voice")
 def get_voice(voice_id: str) -> McpVoice:
     """Get details of a specific voice."""
@@ -315,7 +331,7 @@ def get_voice(voice_id: str) -> McpVoice:
 
 
 @mcp.tool(
-    description="""Clone a voice using provided audio files.
+    description="""Create an instant voice clone of a voice using provided audio files.
 
     ⚠️ COST WARNING: This tool makes an API call to ElevenLabs which may incur costs. Only use when explicitly requested by the user.
     """
@@ -324,7 +340,12 @@ def voice_clone(
     name: str, files: list[str], description: str | None = None
 ) -> TextContent:
     input_files = [str(handle_input_file(file).absolute()) for file in files]
-    voice = client.clone(name=name, description=description, files=input_files)
+    voice = client.voices.ivc.create(
+        name=name,
+        description=description,
+        files=input_files
+    )
+
     return TextContent(
         type="text",
         text=f"""Voice cloned successfully: Name: {voice.name}
@@ -349,7 +370,7 @@ def isolate_audio(
     output_file_name = make_output_file("iso", file_path.name, output_path, "mp3")
     with file_path.open("rb") as f:
         audio_bytes = f.read()
-    audio_data = client.audio_isolation.audio_isolation(
+    audio_data = client.audio_isolation.convert(
         audio=audio_bytes,
     )
     audio_bytes = b"".join(audio_data)
@@ -367,7 +388,7 @@ def isolate_audio(
     description="Check the current subscription status. Could be used to measure the usage of the API."
 )
 def check_subscription() -> TextContent:
-    subscription = client.user.get_subscription()
+    subscription = client.user.subscription.get()
     return TextContent(type="text", text=f"{subscription.model_dump_json(indent=2)}")
 
 
@@ -386,7 +407,7 @@ def check_subscription() -> TextContent:
         temperature: Temperature for the agent. The lower the temperature, the more deterministic the agent's responses will be. Range is 0 to 1.
         max_tokens: Maximum number of tokens to generate.
         asr_quality: Quality of the ASR. `high` or `low`.
-        model_id: ID of the ElevenLabsmodel to use for the agent.
+        model_id: ID of the ElevenLabs model to use for the agent.
         optimize_streaming_latency: Optimize streaming latency. Range is 0 to 4.
         stability: Stability for the agent. Range is 0 to 1.
         similarity_boost: Similarity boost for the agent. Range is 0 to 1.
@@ -437,7 +458,7 @@ def create_agent(
         retention_days=retention_days,
     )
 
-    response = client.conversational_ai.create_agent(
+    response = client.conversational_ai.agents.create(
         name=name,
         conversation_config=conversation_config,
         platform_settings=platform_settings,
@@ -477,22 +498,28 @@ def add_knowledge_base_to_agent(
     if len(provided_params) > 1:
         make_error("Must provide exactly one of: URL, file, or text")
 
-    if text is not None:
-        text_bytes = text.encode("utf-8")
-        text_io = BytesIO(text_bytes)
-        text_io.name = "text.txt"
-        text_io.content_type = "text/plain"
-        file = text_io
-    elif input_file_path is not None:
-        path = handle_input_file(file_path=input_file_path, audio_content_check=False)
-        file = open(path, "rb")
+    if url is not None:
+        response = client.conversational_ai.knowledge_base.documents.create_from_url(
+            name=knowledge_base_name,
+            url=url,
+        )
+    else:
+        if text is not None:
+            text_bytes = text.encode("utf-8")
+            text_io = BytesIO(text_bytes)
+            text_io.name = "text.txt"
+            text_io.content_type = "text/plain"
+            file = text_io
+        elif input_file_path is not None:
+            path = handle_input_file(file_path=input_file_path, audio_content_check=False)
+            file = open(path, "rb")
 
-    response = client.conversational_ai.add_to_knowledge_base(
-        name=knowledge_base_name,
-        url=url,
-        file=file,
-    )
-    agent = client.conversational_ai.get_agent(agent_id=agent_id)
+        response = client.conversational_ai.knowledge_base.documents.create_from_file(
+            name=knowledge_base_name,
+            file=file,
+        )
+
+    agent = client.conversational_ai.agents.get(agent_id=agent_id)
     agent.conversation_config.agent.prompt.knowledge_base.append(
         KnowledgeBaseLocator(
             type="file" if file else "url",
@@ -500,7 +527,7 @@ def add_knowledge_base_to_agent(
             id=response.id,
         )
     )
-    client.conversational_ai.update_agent(
+    client.conversational_ai.agents.update(
         agent_id=agent_id, conversation_config=agent.conversation_config
     )
     return TextContent(
@@ -516,7 +543,7 @@ def list_agents() -> TextContent:
     Returns:
         TextContent with a formatted list of available agents
     """
-    response = client.conversational_ai.get_agents()
+    response = client.conversational_ai.agents.list()
 
     if not response.agents:
         return TextContent(type="text", text="No agents found.")
@@ -538,7 +565,7 @@ def get_agent(agent_id: str) -> TextContent:
     Returns:
         TextContent with detailed information about the agent
     """
-    response = client.conversational_ai.get_agent(agent_id=agent_id)
+    response = client.conversational_ai.agents.get(agent_id=agent_id)
 
     voice_info = "None"
     if response.conversation_config.tts:
@@ -682,7 +709,7 @@ def make_outbound_call(
     agent_phone_number_id: str,
     to_number: str,
 ) -> TextContent:
-    response = client.conversational_ai.twilio_outbound_call(
+    response = client.conversational_ai.twilio.outbound_call(
         agent_id=agent_id,
         agent_phone_number_id=agent_phone_number_id,
         to_number=to_number,
@@ -769,7 +796,7 @@ def list_phone_numbers() -> TextContent:
     Returns:
         TextContent containing formatted information about the phone numbers
     """
-    response = client.conversational_ai.get_phone_numbers()
+    response = client.conversational_ai.phone_numbers.list()
 
     if not response:
         return TextContent(type="text", text="No phone numbers found.")
