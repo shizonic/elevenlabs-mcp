@@ -578,6 +578,188 @@ def get_agent(agent_id: str) -> TextContent:
 
 
 @mcp.tool(
+    description="""Update a conversational AI agent's configuration.
+
+    ⚠️ COST WARNING: This tool makes an API call to ElevenLabs which may incur costs. Only use when explicitly requested by the user.
+
+    This tool allows updating various aspects of an agent's configuration, with special support for dynamic variables
+    that can be used in the agent's system prompt.
+
+    Args:
+        agent_id: ID of the agent to update
+        name: New name for the agent (optional)
+        system_prompt: New system prompt for the agent (optional)
+        first_message: New first message for the agent (optional)
+        voice_id: New voice ID for the agent (optional)
+        language: New ISO 639-1 language code (optional)
+        llm: New LLM model to use (optional)
+        temperature: New temperature (0-1) (optional)
+        max_tokens: New max tokens limit (optional)
+        dynamic_variables: Dict of dynamic variables that can be used in prompts with {{variable_name}} syntax (optional)
+        knowledge_base_ids: List of knowledge base IDs to set (replaces existing) (optional)
+        stability: New stability for voice (0-1) (optional)
+        similarity_boost: New similarity boost for voice (0-1) (optional)
+        optimize_streaming_latency: New streaming optimization (0-4) (optional)
+        turn_timeout: New turn timeout in seconds (optional)
+        max_duration_seconds: New max conversation duration in seconds (optional)
+    """
+)
+def update_agent(
+    agent_id: str,
+    name: str | None = None,
+    system_prompt: str | None = None,
+    first_message: str | None = None,
+    voice_id: str | None = None,
+    language: str | None = None,
+    llm: str | None = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    dynamic_variables: dict[str, str] | None = None,
+    knowledge_base_ids: list[str] | None = None,
+    stability: float | None = None,
+    similarity_boost: float | None = None,
+    optimize_streaming_latency: int | None = None,
+    turn_timeout: int | None = None,
+    max_duration_seconds: int | None = None,
+) -> TextContent:
+    # Get current agent configuration
+    agent = client.conversational_ai.agents.get(agent_id=agent_id)
+    
+    # Prepare update data - only include fields that are being updated
+    update_data = {}
+    
+    # Update name if provided
+    if name is not None:
+        update_data["name"] = name
+    
+    # Build conversation_config if any related fields are being updated
+    conversation_config_updates = False
+    conversation_config = agent.conversation_config.model_dump()
+    
+    # Update agent-level configuration
+    if system_prompt is not None:
+        conversation_config["agent"]["prompt"]["prompt"] = system_prompt
+        conversation_config_updates = True
+    
+    if first_message is not None:
+        conversation_config["agent"]["first_message"] = first_message
+        conversation_config_updates = True
+    
+    if language is not None:
+        conversation_config["agent"]["language"] = language
+        conversation_config_updates = True
+    
+    if llm is not None:
+        conversation_config["agent"]["prompt"]["llm"] = llm
+        conversation_config_updates = True
+    
+    if temperature is not None:
+        conversation_config["agent"]["prompt"]["temperature"] = temperature
+        conversation_config_updates = True
+    
+    if max_tokens is not None:
+        conversation_config["agent"]["prompt"]["max_tokens"] = max_tokens
+        conversation_config_updates = True
+    
+    # Update dynamic variables if provided
+    if dynamic_variables is not None:
+        conversation_config["agent"]["dynamic_variables"] = {
+            "dynamic_variable_placeholders": dynamic_variables
+        }
+        conversation_config_updates = True
+    
+    # Update knowledge bases if provided
+    if knowledge_base_ids is not None:
+        # Convert IDs to knowledge base locators
+        knowledge_bases = []
+        for kb_id in knowledge_base_ids:
+            knowledge_bases.append({
+                "type": "file",
+                "id": kb_id,
+                "name": f"Knowledge Base {kb_id}"  # Name could be improved with additional lookup
+            })
+        conversation_config["agent"]["prompt"]["knowledge_base"] = knowledge_bases
+        conversation_config_updates = True
+    
+    # Update TTS configuration
+    if voice_id is not None:
+        if "tts" not in conversation_config:
+            conversation_config["tts"] = {}
+        conversation_config["tts"]["voice_id"] = voice_id
+        conversation_config_updates = True
+    
+    if stability is not None:
+        if "tts" not in conversation_config:
+            conversation_config["tts"] = {}
+        conversation_config["tts"]["stability"] = stability
+        conversation_config_updates = True
+    
+    if similarity_boost is not None:
+        if "tts" not in conversation_config:
+            conversation_config["tts"] = {}
+        conversation_config["tts"]["similarity_boost"] = similarity_boost
+        conversation_config_updates = True
+    
+    if optimize_streaming_latency is not None:
+        if "tts" not in conversation_config:
+            conversation_config["tts"] = {}
+        conversation_config["tts"]["optimize_streaming_latency"] = optimize_streaming_latency
+        conversation_config_updates = True
+    
+    # Update turn configuration
+    if turn_timeout is not None:
+        if "turn" not in conversation_config:
+            conversation_config["turn"] = {}
+        conversation_config["turn"]["turn_timeout"] = turn_timeout
+        conversation_config_updates = True
+    
+    # Update conversation configuration
+    if max_duration_seconds is not None:
+        if "conversation" not in conversation_config:
+            conversation_config["conversation"] = {}
+        conversation_config["conversation"]["max_duration_seconds"] = max_duration_seconds
+        conversation_config_updates = True
+    
+    # Add conversation_config to update_data if there were any updates
+    if conversation_config_updates:
+        update_data["conversation_config"] = conversation_config
+    
+    # Perform the update
+    if update_data:
+        response = client.conversational_ai.agents.update(
+            agent_id=agent_id,
+            **update_data
+        )
+        
+        # Build summary of what was updated
+        updated_fields = []
+        if name is not None:
+            updated_fields.append(f"name: {name}")
+        if system_prompt is not None:
+            updated_fields.append("system prompt")
+        if first_message is not None:
+            updated_fields.append("first message")
+        if voice_id is not None:
+            updated_fields.append(f"voice ID: {voice_id}")
+        if dynamic_variables is not None:
+            updated_fields.append(f"dynamic variables: {', '.join(dynamic_variables.keys())}")
+        if knowledge_base_ids is not None:
+            updated_fields.append(f"knowledge bases: {len(knowledge_base_ids)} items")
+        
+        updates_summary = ", ".join(updated_fields) if updated_fields else "No fields specified"
+        
+        return TextContent(
+            type="text",
+            text=f"Agent {agent_id} updated successfully. Updated fields: {updates_summary}",
+        )
+    else:
+        return TextContent(
+            type="text",
+            text=f"No updates specified for agent {agent_id}",
+        )
+
+
+@mcp.tool(
     description="""Transform audio from one voice to another using provided audio files.
 
     ⚠️ COST WARNING: This tool makes an API call to ElevenLabs which may incur costs. Only use when explicitly requested by the user.
