@@ -632,97 +632,80 @@ def update_agent(
     if name is not None:
         update_data["name"] = name
     
-    # Build conversation_config if any related fields are being updated
-    conversation_config_updates = False
-    conversation_config = agent.conversation_config.model_dump()
+    # For conversation config updates, we need to create a new config
+    # since existing config objects are immutable
+    config_updates_needed = any([
+        system_prompt is not None,
+        first_message is not None,
+        language is not None,
+        llm is not None,
+        temperature is not None,
+        max_tokens is not None,
+        dynamic_variables is not None,
+        knowledge_base_ids is not None,
+        voice_id is not None,
+        stability is not None,
+        similarity_boost is not None,
+        optimize_streaming_latency is not None,
+        turn_timeout is not None,
+        max_duration_seconds is not None,
+    ])
     
-    # Update agent-level configuration
-    if system_prompt is not None:
-        conversation_config["agent"]["prompt"]["prompt"] = system_prompt
-        conversation_config_updates = True
-    
-    if first_message is not None:
-        conversation_config["agent"]["first_message"] = first_message
-        conversation_config_updates = True
-    
-    if language is not None:
-        conversation_config["agent"]["language"] = language
-        conversation_config_updates = True
-    
-    if llm is not None:
-        conversation_config["agent"]["prompt"]["llm"] = llm
-        conversation_config_updates = True
-    
-    if temperature is not None:
-        conversation_config["agent"]["prompt"]["temperature"] = temperature
-        conversation_config_updates = True
-    
-    if max_tokens is not None:
-        conversation_config["agent"]["prompt"]["max_tokens"] = max_tokens
-        conversation_config_updates = True
-    
-    # Update dynamic variables if provided
-    if dynamic_variables is not None:
-        conversation_config["agent"]["dynamic_variables"] = {
-            "dynamic_variable_placeholders": dynamic_variables
-        }
-        conversation_config_updates = True
-    
-    # Update knowledge bases if provided
-    if knowledge_base_ids is not None:
-        # Convert IDs to knowledge base locators
-        knowledge_bases = []
-        for kb_id in knowledge_base_ids:
-            knowledge_bases.append({
-                "type": "file",
-                "id": kb_id,
-                "name": f"Knowledge Base {kb_id}"  # Name could be improved with additional lookup
-            })
-        conversation_config["agent"]["prompt"]["knowledge_base"] = knowledge_bases
-        conversation_config_updates = True
-    
-    # Update TTS configuration
-    if voice_id is not None:
-        if "tts" not in conversation_config:
-            conversation_config["tts"] = {}
-        conversation_config["tts"]["voice_id"] = voice_id
-        conversation_config_updates = True
-    
-    if stability is not None:
-        if "tts" not in conversation_config:
-            conversation_config["tts"] = {}
-        conversation_config["tts"]["stability"] = stability
-        conversation_config_updates = True
-    
-    if similarity_boost is not None:
-        if "tts" not in conversation_config:
-            conversation_config["tts"] = {}
-        conversation_config["tts"]["similarity_boost"] = similarity_boost
-        conversation_config_updates = True
-    
-    if optimize_streaming_latency is not None:
-        if "tts" not in conversation_config:
-            conversation_config["tts"] = {}
-        conversation_config["tts"]["optimize_streaming_latency"] = optimize_streaming_latency
-        conversation_config_updates = True
-    
-    # Update turn configuration
-    if turn_timeout is not None:
-        if "turn" not in conversation_config:
-            conversation_config["turn"] = {}
-        conversation_config["turn"]["turn_timeout"] = turn_timeout
-        conversation_config_updates = True
-    
-    # Update conversation configuration
-    if max_duration_seconds is not None:
-        if "conversation" not in conversation_config:
-            conversation_config["conversation"] = {}
-        conversation_config["conversation"]["max_duration_seconds"] = max_duration_seconds
-        conversation_config_updates = True
-    
-    # Add conversation_config to update_data if there were any updates
-    if conversation_config_updates:
-        update_data["conversation_config"] = conversation_config
+    if config_updates_needed:
+        # Extract current values to preserve unchanged settings
+        current_config = agent.conversation_config
+        current_agent = current_config.agent
+        current_prompt = current_agent.prompt
+        current_tts = current_config.tts
+        current_turn = current_config.turn
+        current_conversation = current_config.conversation
+        current_asr = current_config.asr
+        
+        # Create new configuration with updates
+        new_conversation_config = create_conversation_config(
+            language=language if language is not None else current_agent.language,
+            system_prompt=system_prompt if system_prompt is not None else current_prompt.prompt,
+            llm=llm if llm is not None else current_prompt.llm,
+            first_message=first_message if first_message is not None else current_agent.first_message,
+            temperature=temperature if temperature is not None else current_prompt.temperature,
+            max_tokens=max_tokens if max_tokens is not None else current_prompt.max_tokens,
+            asr_quality=current_asr.quality,
+            voice_id=voice_id if voice_id is not None else current_tts.voice_id,
+            model_id=current_tts.model_id,
+            optimize_streaming_latency=optimize_streaming_latency if optimize_streaming_latency is not None else current_tts.optimize_streaming_latency,
+            stability=stability if stability is not None else current_tts.stability,
+            similarity_boost=similarity_boost if similarity_boost is not None else current_tts.similarity_boost,
+            turn_timeout=turn_timeout if turn_timeout is not None else current_turn.turn_timeout,
+            max_duration_seconds=max_duration_seconds if max_duration_seconds is not None else current_conversation.max_duration_seconds,
+        )
+        
+        # Update dynamic variables if provided
+        if dynamic_variables is not None:
+            new_conversation_config["agent"]["dynamic_variables"]["dynamic_variable_placeholders"] = dynamic_variables
+        
+        # Handle knowledge bases
+        if knowledge_base_ids is not None:
+            # Replace with new knowledge bases
+            knowledge_bases = []
+            for kb_id in knowledge_base_ids:
+                knowledge_bases.append({
+                    "type": "file",
+                    "id": kb_id,
+                    "name": f"Knowledge Base {kb_id}"
+                })
+            new_conversation_config["agent"]["prompt"]["knowledge_base"] = knowledge_bases
+        else:
+            # Preserve existing knowledge bases by converting them to dict format
+            existing_kbs = []
+            for kb in current_prompt.knowledge_base:
+                existing_kbs.append({
+                    "type": kb.type,
+                    "id": kb.id,
+                    "name": kb.name
+                })
+            new_conversation_config["agent"]["prompt"]["knowledge_base"] = existing_kbs
+        
+        update_data["conversation_config"] = new_conversation_config
     
     # Perform the update
     if update_data:
