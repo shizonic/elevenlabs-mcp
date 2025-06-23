@@ -131,7 +131,11 @@ def text_to_speech(
     output_path = make_output_path(output_directory, base_path)
     output_file_name = make_output_file("tts", text, output_path, "mp3")
 
-    model_id = "eleven_flash_v2_5" if language in ["hu", "no", "vi"] else "eleven_multilingual_v2"
+    model_id = (
+        "eleven_flash_v2_5"
+        if language in ["hu", "no", "vi"]
+        else "eleven_multilingual_v2"
+    )
 
     audio_data = client.text_to_speech.convert(
         text=text,
@@ -251,7 +255,7 @@ def text_to_sound_effects(
     text: str,
     duration_seconds: float = 2.0,
     output_directory: str | None = None,
-    output_format: str = "mp3_44100_128"
+    output_format: str = "mp3_44100_128",
 ) -> list[TextContent]:
     if duration_seconds < 0.5 or duration_seconds > 5:
         make_error("Duration must be between 0.5 and 5 seconds")
@@ -312,7 +316,7 @@ def list_models() -> list[McpModel]:
             languages=[
                 McpLanguage(language_id=lang.language_id, name=lang.name)
                 for lang in model.languages
-            ]
+            ],
         )
         for model in response
     ]
@@ -341,9 +345,7 @@ def voice_clone(
 ) -> TextContent:
     input_files = [str(handle_input_file(file).absolute()) for file in files]
     voice = client.voices.ivc.create(
-        name=name,
-        description=description,
-        files=input_files
+        name=name, description=description, files=input_files
     )
 
     return TextContent(
@@ -511,7 +513,9 @@ def add_knowledge_base_to_agent(
             text_io.content_type = "text/plain"
             file = text_io
         elif input_file_path is not None:
-            path = handle_input_file(file_path=input_file_path, audio_content_check=False)
+            path = handle_input_file(
+                file_path=input_file_path, audio_content_check=False
+            )
             file = open(path, "rb")
 
         response = client.conversational_ai.knowledge_base.documents.create_from_file(
@@ -555,26 +559,140 @@ def list_agents() -> TextContent:
     return TextContent(type="text", text=f"Available agents: {agent_list}")
 
 
-@mcp.tool(description="Get details about a specific conversational AI agent")
-def get_agent(agent_id: str) -> TextContent:
-    """Get details about a specific conversational AI agent.
-
+@mcp.tool(
+    description="""Gets conversation with transcript. Returns: conversation details and full transcript. Use when: analyzing completed agent conversations.
+    
     Args:
-        agent_id: The ID of the agent to retrieve
-
-    Returns:
-        TextContent with detailed information about the agent
+        conversation_id: The unique identifier of the conversation to retrieve, you can get the ids from the list_conversations tool.
     """
-    response = client.conversational_ai.agents.get(agent_id=agent_id)
+)
+def get_conversation(
+    conversation_id: str,
+) -> TextContent:
+    """Get conversation details with transcript"""
+    try:
+        response = client.conversational_ai.conversations.get(conversation_id)
 
-    voice_info = "None"
-    if response.conversation_config.tts:
-        voice_info = f"Voice ID: {response.conversation_config.tts.voice_id}"
+        # Format transcript
+        transcript_lines = []
+        for entry in response.transcript:
+            # Handle transcript entry attributes based on the model structure
+            speaker = getattr(entry, "role", "Unknown")
+            text = getattr(entry, "message", getattr(entry, "text", ""))
+            timestamp = getattr(entry, "timestamp", None)
 
-    return TextContent(
-        type="text",
-        text=f"Agent Details: Name: {response.name}, Agent ID: {response.agent_id}, Voice Configuration: {voice_info}, Created At: {datetime.fromtimestamp(response.metadata.created_at_unix_secs).strftime('%Y-%m-%d %H:%M:%S')}",
-    )
+            if timestamp:
+                transcript_lines.append(f"[{timestamp}] {speaker}: {text}")
+            else:
+                transcript_lines.append(f"{speaker}: {text}")
+
+        transcript = (
+            "\n".join(transcript_lines)
+            if transcript_lines
+            else "No transcript available"
+        )
+
+        # Build response text
+        response_text = f"""Conversation Details:
+ID: {response.conversation_id}
+Status: {response.status}
+Agent ID: {response.agent_id}
+Message Count: {len(response.transcript)}
+
+Transcript:
+{transcript}"""
+
+        # Add metadata
+        if response.metadata:
+            metadata = response.metadata
+            duration = getattr(
+                metadata,
+                "call_duration_secs",
+                getattr(metadata, "duration_seconds", "N/A"),
+            )
+            started_at = getattr(
+                metadata, "start_time_unix_secs", getattr(metadata, "started_at", "N/A")
+            )
+            response_text += (
+                f"\n\nMetadata:\nDuration: {duration} seconds\nStarted: {started_at}"
+            )
+
+        # Add analysis if available
+        if response.analysis:
+            analysis_summary = getattr(
+                response.analysis, "summary", "Analysis available but no summary"
+            )
+            response_text += f"\n\nAnalysis:\n{analysis_summary}"
+
+        return TextContent(type="text", text=response_text)
+
+    except Exception as e:
+        make_error(f"Failed to fetch conversation: {str(e)}")
+
+
+@mcp.tool(
+    description="""Lists agent conversations. Returns: conversation list with metadata. Use when: asked about conversation history.
+    
+    Args:
+        agent_id (str, optional): Filter conversations by specific agent ID
+        cursor (str, optional): Pagination cursor for retrieving next page of results
+        call_start_before_unix (int, optional): Filter conversations that started before this Unix timestamp
+        call_start_after_unix (int, optional): Filter conversations that started after this Unix timestamp
+        page_size (int, optional): Number of conversations to return per page (1-100, defaults to 30)
+    """
+)
+def list_conversations(
+    agent_id: str | None = None,
+    cursor: str | None = None,
+    call_start_before_unix: int | None = None,
+    call_start_after_unix: int | None = None,
+    page_size: int = 30,
+) -> TextContent:
+    """List conversations with filtering options."""
+    if page_size > 100:
+        page_size = 100
+
+    try:
+        response = client.conversational_ai.conversations.list(
+            cursor=cursor,
+            agent_id=agent_id,
+            call_start_before_unix=call_start_before_unix,
+            call_start_after_unix=call_start_after_unix,
+            page_size=page_size,
+        )
+
+        if not response.conversations:
+            return TextContent(type="text", text="No conversations found.")
+
+        # Format conversation list
+        conv_list = []
+        for conv in response.conversations:
+            # Convert unix timestamp to readable format
+            start_time = datetime.fromtimestamp(conv.start_time_unix_secs).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+
+            conv_info = f"""Conversation ID: {conv.conversation_id}
+Status: {conv.status}
+Agent: {conv.agent_name or 'N/A'} (ID: {conv.agent_id})
+Started: {start_time}
+Duration: {conv.call_duration_secs} seconds
+Messages: {conv.message_count}
+Call Successful: {conv.call_successful}"""
+
+            conv_list.append(conv_info)
+
+        formatted_list = "\n\n".join(conv_list)
+
+        # Add pagination info
+        pagination_info = f"Showing {len(response.conversations)} conversations"
+        if response.has_more:
+            pagination_info += f" (more available, next cursor: {response.next_cursor})"
+
+        return TextContent(type="text", text=f"{pagination_info}\n\n{formatted_list}")
+
+    except Exception as e:
+        make_error(f"Failed to list conversations: {str(e)}")
 
 
 @mcp.tool(
