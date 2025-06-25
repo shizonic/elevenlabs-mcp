@@ -27,6 +27,8 @@ from elevenlabs_mcp.utils import (
     make_output_path,
     make_output_file,
     handle_input_file,
+    parse_conversation_transcript,
+    handle_large_text,
 )
 from elevenlabs_mcp.convai import create_conversation_config, create_platform_settings
 from elevenlabs.types.knowledge_base_locator import KnowledgeBaseLocator
@@ -559,6 +561,28 @@ def list_agents() -> TextContent:
     return TextContent(type="text", text=f"Available agents: {agent_list}")
 
 
+@mcp.tool(description="Get details about a specific conversational AI agent")
+def get_agent(agent_id: str) -> TextContent:
+    """Get details about a specific conversational AI agent.
+
+    Args:
+        agent_id: The ID of the agent to retrieve
+
+    Returns:
+        TextContent with detailed information about the agent
+    """
+    response = client.conversational_ai.agents.get(agent_id=agent_id)
+
+    voice_info = "None"
+    if response.conversation_config.tts:
+        voice_info = f"Voice ID: {response.conversation_config.tts.voice_id}"
+
+    return TextContent(
+        type="text",
+        text=f"Agent Details: Name: {response.name}, Agent ID: {response.agent_id}, Voice Configuration: {voice_info}, Created At: {datetime.fromtimestamp(response.metadata.created_at_unix_secs).strftime('%Y-%m-%d %H:%M:%S')}",
+    )
+
+
 @mcp.tool(
     description="""Gets conversation with transcript. Returns: conversation details and full transcript. Use when: analyzing completed agent conversations.
     
@@ -573,26 +597,9 @@ def get_conversation(
     try:
         response = client.conversational_ai.conversations.get(conversation_id)
 
-        # Format transcript
-        transcript_lines = []
-        for entry in response.transcript:
-            # Handle transcript entry attributes based on the model structure
-            speaker = getattr(entry, "role", "Unknown")
-            text = getattr(entry, "message", getattr(entry, "text", ""))
-            timestamp = getattr(entry, "timestamp", None)
+        # Parse transcript using utility function
+        transcript, _ = parse_conversation_transcript(response.transcript)
 
-            if timestamp:
-                transcript_lines.append(f"[{timestamp}] {speaker}: {text}")
-            else:
-                transcript_lines.append(f"{speaker}: {text}")
-
-        transcript = (
-            "\n".join(transcript_lines)
-            if transcript_lines
-            else "No transcript available"
-        )
-
-        # Build response text
         response_text = f"""Conversation Details:
 ID: {response.conversation_id}
 Status: {response.status}
@@ -602,7 +609,6 @@ Message Count: {len(response.transcript)}
 Transcript:
 {transcript}"""
 
-        # Add metadata
         if response.metadata:
             metadata = response.metadata
             duration = getattr(
@@ -617,7 +623,6 @@ Transcript:
                 f"\n\nMetadata:\nDuration: {duration} seconds\nStarted: {started_at}"
             )
 
-        # Add analysis if available
         if response.analysis:
             analysis_summary = getattr(
                 response.analysis, "summary", "Analysis available but no summary"
@@ -647,10 +652,10 @@ def list_conversations(
     call_start_before_unix: int | None = None,
     call_start_after_unix: int | None = None,
     page_size: int = 30,
+    max_length: int = 10000,
 ) -> TextContent:
     """List conversations with filtering options."""
-    if page_size > 100:
-        page_size = 100
+    page_size = min(page_size, 100)
 
     try:
         response = client.conversational_ai.conversations.list(
@@ -664,10 +669,8 @@ def list_conversations(
         if not response.conversations:
             return TextContent(type="text", text="No conversations found.")
 
-        # Format conversation list
         conv_list = []
         for conv in response.conversations:
-            # Convert unix timestamp to readable format
             start_time = datetime.fromtimestamp(conv.start_time_unix_secs).strftime(
                 "%Y-%m-%d %H:%M:%S"
             )
@@ -684,15 +687,25 @@ Call Successful: {conv.call_successful}"""
 
         formatted_list = "\n\n".join(conv_list)
 
-        # Add pagination info
         pagination_info = f"Showing {len(response.conversations)} conversations"
         if response.has_more:
             pagination_info += f" (more available, next cursor: {response.next_cursor})"
 
-        return TextContent(type="text", text=f"{pagination_info}\n\n{formatted_list}")
+        full_text = f"{pagination_info}\n\n{formatted_list}"
+
+        # Use utility to handle large text content
+        result_text = handle_large_text(full_text, max_length, "conversation list")
+
+        # If content was saved to file, prepend pagination info
+        if result_text != full_text:
+            result_text = f"{pagination_info}\n\n{result_text}"
+
+        return TextContent(type="text", text=result_text)
 
     except Exception as e:
         make_error(f"Failed to list conversations: {str(e)}")
+        # This line is unreachable but satisfies type checker
+        return TextContent(type="text", text="")
 
 
 @mcp.tool(
@@ -716,6 +729,7 @@ def speech_to_speech(
     if voice is None:
         make_error(f"Voice with name: {voice_name} does not exist.")
 
+    assert voice is not None  # Type assertion for type checker
     file_path = handle_input_file(input_file_path)
     output_path = make_output_path(output_directory, base_path)
     output_file_name = make_output_file("sts", file_path.name, output_path, "mp3")
